@@ -4,10 +4,10 @@ font = cv2.FONT_HERSHEY_SIMPLEX
 
 age_list = ['(0 - 2)', '(4 - 6)', '(8 - 12)', '(15 - 20)', '(25 - 32)', '(38 - 43)', '(48 - 53)', '(60 - 80)']
 gender_list = ['Male', 'Female']
-# MODEL_MEAN_VALUES = (78.4263377603, 87.7689143744, 114.895847746)
+#MODEL_MEAN_VALUES = (78.4263377603, 87.7689143744, 114.895847746)
 MODEL_MEAN_VALUES = (200, 250, 300)
 age_net = cv2.dnn.readNetFromCaffe('deploy_age.prototxt', 'age_net.caffemodel')
-#gender_net = cv2.dnn.readNetFromCaffe('deploy_gender.prototxt', 'gender_net.caffemodel')
+gender_net = cv2.dnn.readNetFromCaffe('deploy_gender.prototxt', 'gender_net.caffemodel')
 face_cascade = cv2.CascadeClassifier('haarcascade_frontalface_default.xml')
 
 #cap = cv2.VideoCapture(0)
@@ -25,8 +25,7 @@ while 1:
         cv2.rectangle(img, (x, y), (x + w, y + h), (0, 0, 0), 2)
         roi_gray = gray[y:y + h, x:x + w]
         roi_color = img[y:y + h, x:x + w]
-
- # Get Face
+# Get Face
         face_img = img[y:y + h, h:h + w].copy()
         blob = cv2.dnn.blobFromImage(face_img, 1, (227, 227), MODEL_MEAN_VALUES, swapRB=False)
 
@@ -42,7 +41,7 @@ while 1:
         gender = gender_list[gender_preds[0].argmax()]
         print("Gender : " + gender)
 
-    overlay_text = "%s " %(age)
+    overlay_text = "%s %s" % (gender, age)
     cv2.putText(img, overlay_text, (x, y), font, 1, (255, 255, 255), 2, cv2.LINE_AA)
 
     # Display the resulting frame
@@ -50,6 +49,6 @@ while 1:
     k = cv2.waitKey(30) & 0xff
     if k==27:
         break
-# When everything done, release the capture
+# release the capture
 cap.release()
 cv2.destroyAllWindows()
