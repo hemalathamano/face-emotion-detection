@@ -1,94 +1,156 @@
+#Organising the dataset
+import pandas as pd
 import cv2
 import numpy as np
-import os
-import time
-flags=cv2.CASCADE_SCALE_IMAGE
-cv2.namedWindow("preview")
-cap= cv2.VideoCapture(0)
-#frame=cv2.imread('image.jpg')
-face_cascade = cv2.CascadeClassifier("haarcascade_frontalface_default.xml")
-facedict = {}
-emotions = ["anger", "disgust", "fear", "happy", "neutral", "sad", "surprise"]
+ 
+dataset_path = 'fer2013/fer2013.csv'
+image_size=(48,48)
+ 
+def load_fer2013():
+    data = pd.read_csv(dataset_path)
+    pixels = data['pixels'].tolist()
+    width, height = 48, 48
+    faces = []
+    for pixel_sequence in pixels:
+        face = [int(pixel) for pixel in pixel_sequence.split(' ')]
+        face = np.asarray(face).reshape(width, height)
+        face = cv2.resize(face.astype('uint8'),image_size)
+        faces.append(face.astype('float32'))
+    faces = np.asarray(faces)
+    faces = np.expand_dims(faces, -1)
+    emotions = pd.get_dummies(data['emotion']).as_matrix()
+    return faces, emotions
+ 
+def preprocess_input(x, v2=True):
+    x = x.astype('float32')
+    x = x / 255.0
+    if v2:
+        x = x - 0.5
+        x = x * 2.0
+    return x
+ 
+faces, emotions = load_fer2013()
+faces = preprocess_input(faces)
+xtrain, xtest,ytrain,ytest = train_test_split(faces, emotions,test_size=0.2,shuffle=True)
 
+#emotion detection
 
-# To crop face in an image
-def crop_face(clahe_image, face):
-    for (x, y, w, h) in face:
-        faceslice = clahe_image[y:y + h, x:x + w]
-        faceslice = cv2.resize(faceslice, (350, 350))
-    facedict["face%s" % (len(facedict) + 1)] = faceslice
-    return faceslice
+from keras.callbacks import CSVLogger, ModelCheckpoint, EarlyStopping
+from keras.callbacks import ReduceLROnPlateau
+from keras.preprocessing.image import ImageDataGenerator
+from sklearn.model_selection import train_test_split
+from keras.layers import Activation, Convolution2D, Dropout, Conv2D
+from keras.layers import AveragePooling2D, BatchNormalization
+from keras.layers import GlobalAveragePooling2D
+from keras.models import Sequential
+from keras.layers import Flatten
+from keras.models import Model
+from keras.layers import Input
+from keras.layers import MaxPooling2D
+from keras.layers import SeparableConv2D
+from keras import layers
+from keras.regularizers import l2
+import pandas as pd
+import cv2
+import numpy as np
+ 
+# parameters
+batch_size = 32
+num_epochs = 110
+input_shape = (48, 48, 1)
+verbose = 1
+num_classes = 7
+patience = 50
+base_path = 'models/'
+l2_regularization=0.01
+ 
+# data generator
+data_generator = ImageDataGenerator(
+                        featurewise_center=False,
+                        featurewise_std_normalization=False,
+                        rotation_range=10,
+                        width_shift_range=0.1,
+                        height_shift_range=0.1,
+                        zoom_range=.1,
+                        horizontal_flip=True)
+ 
+# model parameters
+regularization = l2(l2_regularization)
+ 
+# base
+img_input = Input(input_shape)
+x = Conv2D(8, (3, 3), strides=(1, 1), kernel_regularizer=regularization, use_bias=False)(img_input)
+x = BatchNormalization()(x)
+x = Activation('relu')(x)
+x = Conv2D(8, (3, 3), strides=(1, 1), kernel_regularizer=regularization, use_bias=False)(x)
+x = BatchNormalization()(x)
+x = Activation('relu')(x)
+ 
+# module 1
+residual = Conv2D(16, (1, 1), strides=(2, 2), padding='same', use_bias=False)(x)
+residual = BatchNormalization()(residual)
+x = SeparableConv2D(16, (3, 3), padding='same', kernel_regularizer=regularization, use_bias=False)(x)
+x = BatchNormalization()(x)
+x = Activation('relu')(x)
+x = SeparableConv2D(16, (3, 3), padding='same', kernel_regularizer=regularization, use_bias=False)(x)
+x = BatchNormalization()(x)
+x = MaxPooling2D((3, 3), strides=(2, 2), padding='same')(x)
+x = layers.add([x, residual])
+ 
+# module 2
+residual = Conv2D(32, (1, 1), strides=(2, 2), padding='same', use_bias=False)(x)
+residual = BatchNormalization()(residual)
+x = SeparableConv2D(32, (3, 3), padding='same', kernel_regularizer=regularization, use_bias=False)(x)
+x = BatchNormalization()(x)
+x = Activation('relu')(x)
+x = SeparableConv2D(32, (3, 3), padding='same', kernel_regularizer=regularization, use_bias=False)(x)
+x = BatchNormalization()(x)
+x = MaxPooling2D((3, 3), strides=(2, 2), padding='same')(x)
+x = layers.add([x, residual])
+ 
+# module 3
+residual = Conv2D(64, (1, 1), strides=(2, 2),padding='same', use_bias=False)(x)
+residual = BatchNormalization()(residual)
+x = SeparableConv2D(64, (3, 3), padding='same',kernel_regularizer=regularization,use_bias=False)(x)
+x = BatchNormalization()(x)
+x = Activation('relu')(x)
+x = SeparableConv2D(64, (3, 3), padding='same',kernel_regularizer=regularization,use_bias=False)(x)
+x = BatchNormalization()(x)
+x = MaxPooling2D((3, 3), strides=(2, 2), padding='same')(x)
+x = layers.add([x, residual])
+ 
+# module 4
+residual = Conv2D(128, (1, 1), strides=(2, 2),padding='same', use_bias=False)(x)
+residual = BatchNormalization()(residual)
+x = SeparableConv2D(128, (3, 3), padding='same',kernel_regularizer=regularization,use_bias=False)(x)
+x = BatchNormalization()(x)
+x = Activation('relu')(x)
+x = SeparableConv2D(128, (3, 3), padding='same',kernel_regularizer=regularization,use_bias=False)(x)
+x = BatchNormalization()(x)
+x = MaxPooling2D((3, 3), strides=(2, 2), padding='same')(x)
+x = layers.add([x, residual])
+x = Conv2D(num_classes, (3, 3), padding='same')(x)
+x = GlobalAveragePooling2D()(x)
+output = Activation('softmax',name='predictions')(x)
+ 
+model = Model(img_input, output)
+model.compile(optimizer='adam', loss='categorical_crossentropy',metrics=['accuracy'])
+model.summary()
+ 
+# callbacks
+log_file_path = base_path + '_emotion_training.log'
+csv_logger = CSVLogger(log_file_path, append=False)
+early_stop = EarlyStopping('val_loss', patience=patience)
+reduce_lr = ReduceLROnPlateau('val_loss', factor=0.1, patience=int(patience/4), verbose=1)
+trained_models_path = base_path + '_mini_XCEPTION'
+model_names = trained_models_path + '.{epoch:02d}-{val_acc:.2f}.hdf5'
+model_checkpoint = ModelCheckpoint(model_names, 'val_loss', verbose=1,save_best_only=True)
+callbacks = [model_checkpoint, csv_logger, early_stop, reduce_lr]
+ 
+model.fit_generator(data_generator.flow(xtrain, ytrain,batch_size),
+                        steps_per_epoch=len(xtrain) / batch_size,
+                        epochs=num_epochs, verbose=1, callbacks=callbacks,
+                        validation_data=(xtest,ytest))
 
-
-def build_set(emotions):
-    check_folders(emotions)
-    for i in range(0, len(emotions)):
-        save_face(emotions[i])
-    print("Great,You are Done!")
-    cv2.destroyWindow("preview")
-    cv2.destroyWindow("webcam")
-
-
-
-def check_folders(emotions):
-    for x in emotions:
-        if os.path.exists("dataset\\%s" % x):
-            pass
-        else:
-            os.makedirs("dataset\\%s" % x)
-
-
-# To save a face in a particular folder
-def save_face(emotion):
-    print("\n\nplease look " + emotion)
-    # To create timer to give time to read what emotion to express
-    for i in range(0, 5):
-        print(5 - i)
-        time.sleep(1)
-    # To grab 50 images for each emotion of each person
-    while len(facedict.keys()) < 51:
-        open_webcamframe()
-# To save contents of dictionary to files
-for x in facedict.keys():
-    cv2.imwrite("dataset_set\\%s\\%s.jpg" % (emotion, len(glob.glob("dataset\\%s\\*" % emotion))), facedict[x])
-facedict.clear()  # clear dictionary so that the next emotion can be stored
-
-
-def open_webcamframe():
-    while True:
-        # to read the image
-        # frame=cv2.imread('image.jpg')
-        if cap.isOpened():  # try to get the first frame
-           rval, frame = cap.read()
-        else:
-            rval = False
-        cv2.imshow("preview", frame)
-        key = cv2.waitKey(40)
-        if key == 27:  # exit on ESC
-            break
-        if key == 32:
-            # To convert image into grayscale
-            gray = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
-            clahe = cv2.createCLAHE(clipLimit=2.0, tileGridSize=(8, 8))
-            clahe_image = clahe.apply(gray)
-            # To run classifier on frame
-
-
-        face = face_cascade.detectMultiScale(clahe_image, scaleFactor=1.1, minNeighbors=15, minSize=(10, 10),flags=cv2.CASCADE_SCALE_IMAGE)
-        # To draw rectangle around detected faces
-        for (x, y, w, h) in face:
-            # draw it on "frame", (coordinates), (size), (RGB color), thickness 2
-            cv2.rectangle(frame, (x, y), (x + w, y + h), (0, 0, 255), 2)
-            # Use simple check if one face is detected, or multiple
-            if len(face) == 1:
-                faceslice = crop_face(clahe_image, face)
-            cv2.imshow("frame", frame)
-            return faceslice  # slice face from image
-
-    else:
-        print("no/multiple faces detected, passing over frame")
-
-
-cv2.destroyWindow("preview")
-cv2.destroyWindow("frame")
-build_set(emotions)
+            
+            
